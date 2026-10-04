@@ -1,0 +1,9 @@
+{
+  "skill_root": "/Users/liyuhan/Downloads/coderworks/gptwork/Mathvideo-skill",
+  "python": "",
+  "default_theme": "claude_light",
+  "preview_quality": "l",
+  "final_quality": "h",
+  "default_voice": "zh-CN-YunxiNeural",
+  "render_timeout_sec": 1800
+}

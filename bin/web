@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# 启动数学视频工作台的 Web 界面。
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+NODE_BIN="${NODE_BIN:-}"
+if [ -z "$NODE_BIN" ]; then
+  for candidate in /opt/homebrew/opt/node@22/bin/node /opt/homebrew/bin/node "$(command -v node 2>/dev/null || true)"; do
+    if [ -x "$candidate" ] && "$candidate" -e "" 2>/dev/null; then NODE_BIN="$candidate"; break; fi
+  done
+fi
+if [ -z "$NODE_BIN" ]; then
+  echo "找不到可用的 Node（需要 ≥ 22.19）" >&2
+  exit 1
+fi
+
+if ! "$NODE_BIN" -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 19) ? 0 : 1)'; then
+  echo "Node 版本过低（$( "$NODE_BIN" -v )），需要 ≥ 22.19" >&2
+  exit 1
+fi
+
+PORT="${PORT:-5180}"
+URL="http://127.0.0.1:${PORT}"
+
+( sleep 1
+  if [ -z "${MATHVIDEO_NO_OPEN:-}" ] && command -v open >/dev/null 2>&1; then open "$URL"; fi
+) &
+
+exec "$NODE_BIN" "$HERE/web/server.mjs"

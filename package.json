@@ -1,0 +1,34 @@
+{
+  "name": "mathvideo-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "把 Pi 智能体框架与 manim-video 技能连起来的数学视频全自动生产工作台",
+  "keywords": [
+    "pi-package",
+    "manim",
+    "math-video",
+    "video"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/video-workbench.ts"
+    ],
+    "skills": [
+      "./skills"
+    ],
+    "prompts": [
+      "./prompts/*.md"
+    ]
+  },
+  "scripts": {
+    "check": "python3 tools/videoctl.py check",
+    "verify": "node tools/verify_workbench.mjs",
+    "list": "python3 tools/videoctl.py list",
+    "web": "node web/server.mjs"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  }
+}

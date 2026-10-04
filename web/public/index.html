@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>数学视频工作台</title>
+  <link rel="icon" href="/static/favicon.svg" />
+<link rel="stylesheet" href="/static/style.css" />
+<link rel="stylesheet" href="/static/vendor/katex/katex.min.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="mark">π</span>
+    <div class="brand-text">
+      <h1>数学视频工作台</h1>
+      <p>说一个主题，剩下的交给它</p>
+    </div>
+  </div>
+
+  <div class="status" id="status">
+    <span class="dot" id="status-dot"></span>
+    <span id="status-text">正在连接…</span>
+    <span class="model" id="model-name"></span>
+  </div>
+
+  <div class="topbar-actions">
+    <button id="btn-model" class="ghost" title="配置自己的模型与 API Key">⚙ 模型</button>
+    <button id="btn-new" class="ghost" title="清空对话，重新开始">新对话</button>
+    <button id="btn-abort" class="danger" hidden>停止</button>
+  </div>
+</header>
+
+<main>
+  <aside class="panel panel-left">
+    <div class="panel-head">
+      <h2>项目</h2>
+      <button id="btn-refresh" class="icon" title="刷新">⟳</button>
+    </div>
+    <div id="project-list" class="scroll"></div>
+    <div class="panel-foot">
+      <div class="env" id="env-info"></div>
+    </div>
+  </aside>
+
+  <section class="chat">
+    <div id="messages" class="messages scroll"></div>
+
+    <form id="composer" class="composer">
+      <div class="chips" id="chips">
+        <button type="button" data-topic="圆的面积为什么是 πr²">圆的面积</button>
+        <button type="button" data-topic="勾股定理的可视化证明">勾股定理</button>
+        <button type="button" data-topic="欧拉公式的几何本质">欧拉公式</button>
+        <button type="button" data-topic="为什么负负得正">负负得正</button>
+      </div>
+      <div class="input-row">
+        <textarea id="input" rows="1" placeholder="输入一个数学主题，例如：欧拉公式的几何本质"></textarea>
+        <button type="submit" id="send">开始制作</button>
+      </div>
+      <p class="hint">流程：写脚本 → 写分幕代码 → 看质检图 → 1080p 渲染 + 配音 → 出片。中途它会找你确认脚本。</p>
+    </form>
+  </section>
+
+  <aside class="panel panel-right">
+    <div class="panel-head">
+      <h2 id="output-title">成片</h2>
+    </div>
+    <div id="output" class="scroll">
+      <p class="empty">左边挑一个项目，或直接开一个新主题。</p>
+    </div>
+  </aside>
+</main>
+
+<div id="model-modal" class="modal" hidden>
+  <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="model-title">
+    <header class="modal-head">
+      <h2 id="model-title">模型配置</h2>
+      <span class="badge-soft">BYOK</span>
+      <button id="model-close" class="icon" title="关闭">✕</button>
+    </header>
+
+    <div class="modal-body">
+      <p class="modal-note">
+        Key 只写在本机 <code>web/.agent/</code>（权限 600），不会上传、也不会回显。换服务商只要重填一次。
+      </p>
+
+      <div class="preset-grid" id="model-presets"></div>
+
+      <div class="field">
+        <label for="model-api">接口类型</label>
+        <select id="model-api">
+          <option value="openai-completions">OpenAI 兼容（Chat Completions，最通用）</option>
+          <option value="openai-responses">OpenAI Responses</option>
+          <option value="anthropic-messages">Anthropic Messages</option>
+          <option value="google-generative-ai">Google Generative AI</option>
+          <option value="mistral-conversations">Mistral</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="model-baseurl">API 地址</label>
+        <input id="model-baseurl" spellcheck="false" placeholder="https://api.deepseek.com/v1" />
+      </div>
+
+      <div class="field">
+        <label for="model-key">API Key</label>
+        <input id="model-key" type="password" spellcheck="false" autocomplete="off" placeholder="sk-…（地址是本机时可以留空）" />
+        <span class="field-hint" id="model-key-hint"></span>
+      </div>
+
+      <div class="field">
+        <label for="model-id">模型</label>
+        <div class="row">
+          <input id="model-id" list="model-options" spellcheck="false" placeholder="点右边拉取列表，或直接手填模型 ID" />
+          <button type="button" id="model-discover" class="mini">拉取模型列表</button>
+        </div>
+        <datalist id="model-options"></datalist>
+      </div>
+
+      <details class="advanced">
+        <summary>高级选项</summary>
+        <div class="field">
+          <label for="model-name">显示名</label>
+          <input id="model-name" spellcheck="false" placeholder="留空就用模型 ID" />
+        </div>
+        <div class="field-pair">
+          <div class="field">
+            <label for="model-context">上下文窗口</label>
+            <input id="model-context" type="number" min="1000" step="1000" />
+          </div>
+          <div class="field">
+            <label for="model-maxtokens">单次最大输出</label>
+            <input id="model-maxtokens" type="number" min="128" step="256" />
+          </div>
+        </div>
+        <label class="check"><input type="checkbox" id="model-images" /> 支持图片输入（质检图要靠它）</label>
+        <label class="check"><input type="checkbox" id="model-reasoning" /> 推理模型（发送思考参数）</label>
+        <div class="field">
+          <label for="model-thinking">思考等级</label>
+          <select id="model-thinking">
+            <option value="off">off</option>
+            <option value="minimal">minimal</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+            <option value="xhigh">xhigh</option>
+            <option value="max">max</option>
+          </select>
+        </div>
+      </details>
+
+      <div id="model-status" class="model-status" hidden></div>
+    </div>
+
+    <footer class="modal-foot">
+      <button id="model-clear" class="ghost">清空配置</button>
+      <button id="model-import" class="ghost">导入本机 Pi 配置</button>
+      <span class="spacer"></span>
+      <button id="model-save" class="primary">保存并重启</button>
+    </footer>
+  </div>
+</div>
+
+<script src="/static/vendor/katex/katex.min.js"></script>
+<script src="/static/vendor/katex/auto-render.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>
