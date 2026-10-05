@@ -3,18 +3,21 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>数学视频工作台</title>
+<title>Animath Studio · 动态数学微电影工作台</title>
   <link rel="icon" href="/static/favicon.svg" />
-<link rel="stylesheet" href="/static/style.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css?v=305" />
 <link rel="stylesheet" href="/static/vendor/katex/katex.min.css" />
 </head>
 <body>
 <header class="topbar">
   <div class="brand">
-    <span class="mark">π</span>
+    <img src="/static/favicon.svg?v=300" class="brand-logo-img" alt="Animath Studio" width="34" height="34" />
     <div class="brand-text">
-      <h1>数学视频工作台</h1>
-      <p>说一个主题，剩下的交给它</p>
+      <h1>Animath Studio <span class="brand-tag">幻数工坊</span></h1>
+      <p>动态数学微电影工作台</p>
     </div>
   </div>
 
@@ -34,8 +37,14 @@
 <main>
   <aside class="panel panel-left">
     <div class="panel-head">
-      <h2>项目</h2>
-      <button id="btn-refresh" class="icon" title="刷新">⟳</button>
+      <div class="panel-head-title">
+        <h2>项目</h2>
+        <span id="project-count" class="badge-count">0</span>
+      </div>
+      <button id="btn-refresh" class="icon" title="刷新项目列表">⟳</button>
+    </div>
+    <div class="panel-search-bar">
+      <input type="search" id="project-search" placeholder="搜索项目..." autocomplete="off" spellcheck="false" />
     </div>
     <div id="project-list" class="scroll"></div>
     <div class="panel-foot">
@@ -48,22 +57,32 @@
 
     <form id="composer" class="composer">
       <div class="chips" id="chips">
-        <button type="button" data-topic="圆的面积为什么是 πr²">圆的面积</button>
-        <button type="button" data-topic="勾股定理的可视化证明">勾股定理</button>
-        <button type="button" data-topic="欧拉公式的几何本质">欧拉公式</button>
-        <button type="button" data-topic="为什么负负得正">负负得正</button>
+        <button type="button" data-topic="圆的面积为什么是 πr²">📐 圆的面积公式</button>
+        <button type="button" data-topic="勾股定理的可视化几何证明">⚡ 勾股定理证明</button>
+        <button type="button" data-topic="欧拉公式的几何本质与复平面旋转">🌀 欧拉公式推导</button>
+        <button type="button" data-topic="为什么负负得正的几何直觉">💡 为什么负负得正</button>
+        <button type="button" data-topic="傅里叶变换如何用圆周运动拟合任意曲线">🌊 傅里叶变换</button>
       </div>
       <div class="input-row">
-        <textarea id="input" rows="1" placeholder="输入一个数学主题，例如：欧拉公式的几何本质"></textarea>
-        <button type="submit" id="send">开始制作</button>
+        <textarea id="input" rows="1" placeholder="输入数学或几何主题，例如：欧拉公式的几何本质"></textarea>
+        <button type="submit" id="send">
+          <span class="send-icon">🚀</span>
+          <span>开始制作</span>
+        </button>
       </div>
-      <p class="hint">流程：写脚本 → 写分幕代码 → 看质检图 → 1080p 渲染 + 配音 → 出片。中途它会找你确认脚本。</p>
+      <p class="hint">
+        <span class="hint-dot"></span>
+        <span>完整制作流：脚本分幕 → 代码生成 → 视觉质检 → 1080p 音画合流。支持 OpenCut 逐帧微调。</span>
+      </p>
     </form>
   </section>
 
   <aside class="panel panel-right">
     <div class="panel-head">
-      <h2 id="output-title">成片</h2>
+      <div class="panel-head-title">
+        <h2 id="output-title">工作台产物</h2>
+        <span class="badge-soft" id="output-meta-tag">STUDIO</span>
+      </div>
     </div>
     <div id="output" class="scroll">
       <p class="empty">左边挑一个项目，或直接开一个新主题。</p>
@@ -161,8 +180,219 @@
   </div>
 </div>
 
+<!-- OpenCut 逐帧视频编辑器模态/工作台 -->
+<div id="video-editor-modal" class="editor-modal" hidden>
+  <div class="editor-modal-container" role="dialog" aria-modal="true" aria-label="OpenCut 逐帧视频编辑器">
+    <!-- 顶栏：项目与时间码信息 -->
+    <header class="editor-header">
+      <div class="editor-title-wrap">
+        <span class="editor-badge">OpenCut 逐帧编辑</span>
+        <h2 id="ve-project-name">pythagoras_demo</h2>
+        <span class="editor-tag" id="ve-resolution">1080p · 60 FPS</span>
+      </div>
+
+      <div class="editor-timecode-center">
+        <div class="smpte-box" title="点击可直接输入时间码 (HH:MM:SS:FF) 或帧数跳转">
+          <span class="smpte-label">TIMECODE</span>
+          <input type="text" id="ve-timecode-input" class="smpte-input" value="00:00:00:00" spellcheck="false" />
+        </div>
+        <div class="frame-counter">
+          <span id="ve-current-frame">0</span> / <span id="ve-total-frames">0</span> 帧
+        </div>
+      </div>
+
+      <div class="editor-header-actions">
+        <button id="ve-btn-export-clip" class="btn-action primary" title="导出入点到出点的选中视频片段">
+          ✂️ 导出选区片段
+        </button>
+        <button id="ve-btn-export-stickers" class="btn-action primary" title="将所有贴纸图层合成并导出为新 MP4 视频">
+          🎬 导出带贴纸视频
+        </button>
+        <button id="ve-btn-feedback-ai" class="btn-action accent" title="把当前帧画面与时间点发送给 AI 对话进行版式/公式修正">
+          💬 发送当前帧给 AI
+        </button>
+        <button id="ve-btn-close" class="icon-close" title="退出逐帧编辑器">✕</button>
+      </div>
+    </header>
+
+    <!-- 主体：视口 + 侧边片段栏 -->
+    <div class="editor-body">
+      <div class="editor-viewport-area">
+        <div class="editor-canvas-container" id="ve-canvas-container">
+          <video id="ve-video" preload="auto" playsinline></video>
+          <div id="ve-sticker-layer" class="sticker-layer"></div>
+          <canvas id="ve-annotate-canvas" class="annotate-canvas" hidden></canvas>
+          <div class="video-overlay-hud" id="ve-hud">
+            <span class="hud-timecode" id="ve-hud-timecode">00:00:00:00</span>
+            <span class="hud-fps" id="ve-hud-fps">60 FPS</span>
+          </div>
+          <div class="annotate-toolbar" id="ve-annotate-toolbar" hidden>
+            <span>标注模式：可在画面上红笔圈选或划出问题</span>
+            <button id="ve-btn-clear-draw" class="mini-btn">清空画板</button>
+          </div>
+        </div>
+
+        <!-- 视口下方播放与逐帧步进控制栏 -->
+        <div class="editor-playback-controls">
+          <div class="control-group left">
+            <button id="ve-btn-first-frame" class="btn-step" title="跳到首帧 [Home]">|◀</button>
+            <button id="ve-btn-prev-sec" class="btn-step" title="快退 1 秒 [Shift+←]">◀◀ 1s</button>
+            <button id="ve-btn-prev-frame" class="btn-step highlight" title="精准上一帧 [←]">◀ 1帧</button>
+            <button id="ve-btn-play" class="btn-play" title="播放/暂停 [空格键 Space]">▶ 播放</button>
+            <button id="ve-btn-next-frame" class="btn-step highlight" title="精准下一帧 [→]">1帧 ▶</button>
+            <button id="ve-btn-next-sec" class="btn-step" title="快进 1 秒 [Shift+→]">1s ▶▶</button>
+            <button id="ve-btn-last-frame" class="btn-step" title="跳到尾帧 [End]">▶|</button>
+            <div class="speed-selector">
+              <label>倍速</label>
+              <select id="ve-speed-select">
+                <option value="0.25">0.25x 慢放</option>
+                <option value="0.5">0.5x</option>
+                <option value="1.0" selected>1.0x 正常</option>
+                <option value="1.5">1.5x</option>
+                <option value="2.0">2.0x</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="control-group center">
+            <button id="ve-btn-mark-in" class="btn-tool" title="设置入点 [I 或 []">🚩 设入点 (In)</button>
+            <button id="ve-btn-split" class="btn-tool" title="在当前帧切片 [C 或 S]">✂️ 分割 (Split)</button>
+            <button id="ve-btn-mark-out" class="btn-tool" title="设置出点 [O 或 ]]">🏁 设出点 (Out)</button>
+            <button id="ve-btn-clear-range" class="btn-tool ghost" title="清除出入点选区">重置选区</button>
+          </div>
+
+          <div class="control-group right">
+            <button id="ve-btn-add-sticker" class="btn-tool sticker-btn" title="为视频添加数学符号、重点标记或趣味贴纸">🎭 添加贴纸</button>
+            <button id="ve-btn-freeze" class="btn-tool freeze" title="定格当前帧并截取超清图片（含贴纸与标注） [F]">❄️ 定格帧抓取</button>
+            <button id="ve-btn-annotate" class="btn-tool" title="在当前帧上圈选或标注问题">✏️ 标注涂鸦</button>
+            <div class="zoom-box">
+              <span>🔍 标尺缩放</span>
+              <input type="range" id="ve-zoom-slider" min="1" max="8" step="0.5" value="1" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右侧：片段、贴纸与定格帧管理栏 -->
+      <aside class="editor-sidebar">
+        <div class="sidebar-tab-header">
+          <button class="sidebar-tab active" data-tab="clips">剪辑片段 (<span id="ve-clip-count">1</span>)</button>
+          <button class="sidebar-tab" data-tab="stickers">贴纸图层 (<span id="ve-sticker-count">0</span>)</button>
+          <button class="sidebar-tab" data-tab="snapshots">定格快照 (<span id="ve-snap-count">0</span>)</button>
+        </div>
+
+        <div class="sidebar-tab-content active" id="ve-tab-clips">
+          <div id="ve-clips-list" class="clips-list scroll"></div>
+        </div>
+
+        <div class="sidebar-tab-content" id="ve-tab-stickers">
+          <div class="stickers-panel-head">
+            <button id="ve-btn-quick-add-sticker" class="btn-tool primary mini">+ 新增贴纸</button>
+            <span class="sticker-hint-text">拖动视频中贴纸移动/缩放</span>
+          </div>
+          <div id="ve-stickers-list" class="stickers-list scroll">
+            <p class="empty-hint">当前画面暂无贴纸。点击下方「🎭 添加贴纸」或上方按钮在当前帧添加数学标记、指示箭头或表情贴纸。</p>
+          </div>
+        </div>
+
+        <div class="sidebar-tab-content" id="ve-tab-snapshots">
+          <div id="ve-snapshots-list" class="snapshots-list scroll">
+            <p class="empty-hint">点击「❄️ 定格帧抓取」捕获当前帧高分辨率静止图（含贴纸与标注），可直接下载或发给 AI 质检。</p>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- 底部：OpenCut 经典时间轴系统 -->
+    <div class="editor-timeline-section">
+      <!-- 刻度尺区域 -->
+      <div class="timeline-ruler-container" id="ve-ruler-container">
+        <canvas id="ve-ruler-canvas" class="ruler-canvas"></canvas>
+      </div>
+
+      <!-- 视频胶片轨道 -->
+      <div class="timeline-track-container" id="ve-track-container">
+        <div class="filmstrip-track" id="ve-filmstrip"></div>
+
+        <!-- 选区遮罩高亮 -->
+        <div class="range-highlight" id="ve-range-highlight" hidden>
+          <span class="range-handle in"></span>
+          <span class="range-info" id="ve-range-info"></span>
+          <span class="range-handle out"></span>
+        </div>
+
+        <!-- 切割分界线标记 -->
+        <div class="split-markers" id="ve-split-markers"></div>
+
+        <!-- 红色游标 (Playhead) -->
+        <div class="playhead" id="ve-playhead">
+          <div class="playhead-badge" id="ve-playhead-badge">00:00:00:00</div>
+          <div class="playhead-line"></div>
+        </div>
+
+        <!-- 悬停指示器 (Hover line & tooltip) -->
+        <div class="timeline-hover-indicator" id="ve-hover-indicator" hidden>
+          <div class="hover-tooltip" id="ve-hover-tooltip">00:00:00:00</div>
+          <div class="hover-line"></div>
+        </div>
+      </div>
+
+      <!-- 贴纸轨道 (Sticker Track) -->
+      <div class="timeline-sticker-track" id="ve-sticker-track-container">
+        <div class="sticker-track-label">🎭 贴纸轨道</div>
+        <div class="sticker-track-bar" id="ve-sticker-track-bar"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 贴纸选择弹窗 (Sticker Picker Modal) -->
+<div id="ve-sticker-picker-modal" class="modal sticker-picker-modal" hidden>
+  <div class="modal-box sticker-picker-box" role="dialog" aria-modal="true" aria-labelledby="sticker-picker-title">
+    <header class="modal-head">
+      <h2 id="sticker-picker-title">🎭 选择或上传贴纸</h2>
+      <button id="ve-btn-close-sticker-picker" class="icon" title="关闭">✕</button>
+    </header>
+
+    <div class="modal-body">
+      <!-- 选项卡分类 -->
+      <div class="sticker-cat-tabs">
+        <button class="cat-tab active" data-cat="math">📐 数学与符号</button>
+        <button class="cat-tab" data-cat="pointer">💡 指示与手势</button>
+        <button class="cat-tab" data-cat="badge">🎨 徽章与趣味</button>
+        <button class="cat-tab" data-cat="upload">📁 本地自定义</button>
+      </div>
+
+      <!-- 贴纸网格 -->
+      <div class="sticker-grid scroll" id="ve-sticker-grid"></div>
+
+      <!-- 本地上传面板 -->
+      <div class="sticker-upload-area" id="ve-sticker-upload-area" hidden>
+        <div class="upload-dropzone" id="ve-sticker-dropzone">
+          <span class="upload-icon">📂</span>
+          <p>拖拽 PNG / SVG / JPG 图片至此，或点击选择本地文件</p>
+          <input type="file" id="ve-sticker-file-input" accept="image/*" style="display:none;" />
+          <button type="button" class="mini-btn" id="ve-btn-browse-sticker">选择图片文件</button>
+        </div>
+      </div>
+
+      <div class="sticker-options-bar">
+        <label>默认显示时长：</label>
+        <select id="ve-sticker-default-duration">
+          <option value="2">2 秒</option>
+          <option value="3" selected>3 秒</option>
+          <option value="5">5 秒</option>
+          <option value="10">10 秒</option>
+          <option value="all">整段视频</option>
+        </select>
+        <span class="field-hint" style="margin-left:auto;">添加后可在时间轴上拖动左右边缘拉长或缩短</span>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="/static/vendor/katex/katex.min.js"></script>
 <script src="/static/vendor/katex/auto-render.min.js"></script>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=305"></script>
 </body>
 </html>

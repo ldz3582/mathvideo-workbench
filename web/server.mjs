@@ -74,6 +74,31 @@ function findPiBinary() {
 }
 const PI_BIN = findPiBinary();
 
+if (!process.env.PATH?.includes("/opt/homebrew/bin")) {
+	process.env.PATH = `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`;
+}
+
+function findBinary(name, explicit) {
+	if (explicit) return explicit;
+	const candidates = [
+		path.join("/opt/homebrew/bin", name),
+		path.join("/usr/local/bin", name),
+		path.join("/usr/bin", name),
+		name,
+	];
+	for (const candidate of candidates) {
+		try {
+			fs.accessSync(candidate, fs.constants.X_OK);
+			return candidate;
+		} catch {
+			/* 继续找 */
+		}
+	}
+	return name;
+}
+const FFMPEG = findBinary("ffmpeg", process.env.FFMPEG_BIN);
+const FFPROBE = findBinary("ffprobe", process.env.FFPROBE_BIN);
+
 // ---------------------------------------------------------------- 事件总线
 const sseClients = new Set();
 
@@ -145,10 +170,12 @@ class PiRpc {
 		this.proc.stderr.setEncoding("utf8");
 		this.proc.stderr.on("data", (chunk) => {
 			const text = chunk.toString().trim();
+			console.error("[pi stderr]", text);
 			if (text) broadcast({ t: "log", v: text.slice(0, 600) });
 		});
 
 		this.proc.on("close", (code) => {
+			console.error("[pi closed] code:", code);
 			this.busy = false;
 			broadcast({ t: "status", running: false, reason: `pi 进程退出（code ${code}）` });
 			this.proc = null;
@@ -498,8 +525,9 @@ function serveFile(req, res, filePath) {
 		"Content-Type": type,
 		"Content-Length": stat.size,
 		"Accept-Ranges": "bytes",
-		// 前端还在迭代，别让浏览器拿旧的 app.js 去配新的接口
-		"Cache-Control": "no-cache",
+		"Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+		"Pragma": "no-cache",
+		"Expires": "0",
 	});
 	fs.createReadStream(filePath).pipe(res);
 }
@@ -827,6 +855,240 @@ const server = http.createServer(async (req, res) => {
 			return json(res, 202, { ok: true, id: taskId });
 		}
 
+		// ---- 逐帧视频处理（OpenCut 引擎支持）
+		if (route === "/api/video/probe") {
+			const target = resolveSafe(url.searchParams.get("path"));
+			if (!target) return json(res, 400, { ok: false, error: "视频路径不合法" });
+
+			const probeChild = spawn(FFPROBE, [
+				"-v", "error",
+				"-select_streams", "v:0",
+				"-show_entries", "stream=width,height,r_frame_rate,duration,nb_frames",
+				"-of", "json",
+				target,
+			]);
+			let stdout = "";
+			let stderr = "";
+			probeChild.stdout.on("data", (c) => (stdout += c));
+			probeChild.stderr.on("data", (c) => (stderr += c));
+			probeChild.on("close", (code) => {
+				if (code !== 0) {
+					return json(res, 200, {
+						ok: true,
+						fps: 60,
+						r_frame_rate: "60/1",
+						width: 1920,
+						height: 1080,
+						duration: null,
+						nb_frames: null,
+						fallback: true,
+						error: stderr,
+					});
+				}
+				try {
+					const data = JSON.parse(stdout);
+					const stream = data.streams?.[0] || {};
+					let fps = 60;
+					if (stream.r_frame_rate) {
+						const parts = stream.r_frame_rate.split("/").map(Number);
+						if (parts.length === 2 && parts[1] > 0) {
+							fps = Math.round((parts[0] / parts[1]) * 100) / 100;
+						} else if (parts[0] > 0) {
+							fps = parts[0];
+						}
+					}
+					const duration = stream.duration ? Number.parseFloat(stream.duration) : null;
+					const nb_frames = stream.nb_frames ? Number.parseInt(stream.nb_frames, 10) : (duration ? Math.round(duration * fps) : null);
+					return json(res, 200, {
+						ok: true,
+						fps,
+						r_frame_rate: stream.r_frame_rate || `${fps}/1`,
+						width: stream.width || 1920,
+						height: stream.height || 1080,
+						duration,
+						nb_frames,
+					});
+				} catch (err) {
+					return json(res, 200, { ok: true, fps: 60, width: 1920, height: 1080, fallback: true, error: err.message });
+				}
+			});
+			return;
+		}
+
+		if (route === "/api/video/cut" && req.method === "POST") {
+			const body = await readBody(req);
+			const target = resolveSafe(body.path);
+			if (!target) return json(res, 400, { ok: false, error: "视频路径不合法" });
+
+			const startTime = Math.max(0, Number(body.startTime || 0));
+			const endTime = Math.max(startTime + 0.05, Number(body.endTime || 0));
+			if (endTime <= startTime) return json(res, 400, { ok: false, error: "裁剪起止时间无效" });
+
+			const cutsDir = path.join(path.dirname(target), "cuts");
+			await fsp.mkdir(cutsDir, { recursive: true });
+			const basename = path.basename(target, path.extname(target));
+			const outName = body.outName || `${basename}_cut_${Math.round(startTime * 1000)}_${Math.round(endTime * 1000)}.mp4`;
+			const outPath = path.join(cutsDir, outName);
+
+			const ffmpegArgs = [
+				"-ss", startTime.toFixed(4),
+				"-to", endTime.toFixed(4),
+				"-i", target,
+				"-c:v", "libx264",
+				"-c:a", "aac",
+				"-avoid_negative_ts", "make_zero",
+				"-y",
+				outPath,
+			];
+			const cutChild = spawn(FFMPEG, ffmpegArgs);
+			let stderr = "";
+			cutChild.stderr.on("data", (c) => (stderr += c));
+			cutChild.on("close", (code) => {
+				if (code === 0) {
+					json(res, 200, {
+						ok: true,
+						path: outPath,
+						filename: outName,
+						duration: Math.round((endTime - startTime) * 1000) / 1000,
+					});
+				} else {
+					json(res, 500, { ok: false, error: stderr.slice(-600) || "裁剪失败" });
+				}
+			});
+			return;
+		}
+
+		if (route === "/api/video/extract-frame" && req.method === "POST") {
+			const body = await readBody(req);
+			const target = resolveSafe(body.path);
+			if (!target) return json(res, 400, { ok: false, error: "视频路径不合法" });
+
+			const time = Math.max(0, Number(body.time || 0));
+			const snapsDir = path.join(path.dirname(target), "snapshots");
+			await fsp.mkdir(snapsDir, { recursive: true });
+			const basename = path.basename(target, path.extname(target));
+			const outName = `${basename}_frame_${Math.round(time * 1000)}.png`;
+			const outPath = path.join(snapsDir, outName);
+
+			const ffmpegArgs = [
+				"-ss", time.toFixed(4),
+				"-i", target,
+				"-vframes", "1",
+				"-q:v", "2",
+				"-y",
+				outPath,
+			];
+			const frameChild = spawn(FFMPEG, ffmpegArgs);
+			let stderr = "";
+			frameChild.stderr.on("data", (c) => (stderr += c));
+			frameChild.on("close", (code) => {
+				if (code === 0) {
+					json(res, 200, {
+						ok: true,
+						path: outPath,
+						filename: outName,
+						time,
+					});
+				} else {
+					json(res, 500, { ok: false, error: stderr.slice(-600) || "抓取单帧失败" });
+				}
+			});
+			return;
+		}
+
+		if (route === "/api/video/render-stickers" && req.method === "POST") {
+			const body = await readBody(req);
+			const target = resolveSafe(body.path);
+			if (!target) return json(res, 400, { ok: false, error: "视频路径不合法" });
+
+			const stickers = Array.isArray(body.stickers) ? body.stickers : [];
+			if (stickers.length === 0) {
+				return json(res, 200, { ok: true, path: target, filename: path.basename(target) });
+			}
+
+			const cutsDir = path.join(path.dirname(target), "cuts");
+			await fsp.mkdir(cutsDir, { recursive: true });
+			const tmpDir = path.join(cutsDir, `.tmp_stickers_${Date.now()}`);
+			await fsp.mkdir(tmpDir, { recursive: true });
+
+			const basename = path.basename(target, path.extname(target));
+			const outName = `${basename}_with_stickers_${Date.now()}.mp4`;
+			const outPath = path.join(cutsDir, outName);
+
+			try {
+				const inputs = ["-i", target];
+				const filterParts = [];
+				let lastOutput = "0:v";
+
+				for (let i = 0; i < stickers.length; i++) {
+					const s = stickers[i];
+					const imgPath = path.join(tmpDir, `stk_${i}.png`);
+					const base64Data = (s.dataUrl || "").replace(/^data:image\/\w+;base64,/, "");
+					await fsp.writeFile(imgPath, Buffer.from(base64Data, "base64"));
+					inputs.push("-i", imgPath);
+
+					const inputIdx = i + 1;
+					const scaledLabel = `s${i}`;
+					const outLabel = i === stickers.length - 1 ? "vfinal" : `tmp${i}`;
+
+					const w = Math.max(16, Math.round(s.width || 120));
+					const h = Math.max(16, Math.round(s.height || 120));
+					const x = Math.max(0, Math.round(s.x || 0));
+					const y = Math.max(0, Math.round(s.y || 0));
+					const start = Math.max(0, Number(s.startTime || 0)).toFixed(3);
+					const end = Math.max(Number(s.startTime || 0) + 0.1, Number(s.endTime || 9999)).toFixed(3);
+
+					filterParts.push(`[${inputIdx}:v]scale=${w}:${h}[${scaledLabel}]`);
+					filterParts.push(
+						`[${lastOutput}][${scaledLabel}]overlay=x=${x}:y=${y}:enable='between(t,${start},${end})'[${outLabel}]`
+					);
+					lastOutput = outLabel;
+				}
+
+				const ffmpegArgs = [
+					...inputs,
+					"-filter_complex",
+					filterParts.join(";"),
+					"-map",
+					`[${lastOutput}]`,
+					"-map",
+					"0:a?",
+					"-c:v",
+					"libx264",
+					"-c:a",
+					"aac",
+					"-avoid_negative_ts",
+					"make_zero",
+					"-y",
+					outPath,
+				];
+
+				const renderChild = spawn(FFMPEG, ffmpegArgs);
+				let stderr = "";
+				renderChild.stderr.on("data", (c) => (stderr += c));
+				renderChild.on("close", async (code) => {
+					try {
+						await fsp.rm(tmpDir, { recursive: true, force: true });
+					} catch {}
+					if (code === 0) {
+						json(res, 200, {
+							ok: true,
+							path: outPath,
+							filename: outName,
+						});
+					} else {
+						json(res, 500, { ok: false, error: stderr.slice(-600) || "贴纸合成渲染失败" });
+					}
+				});
+			} catch (err) {
+				try {
+					await fsp.rm(tmpDir, { recursive: true, force: true });
+				} catch {}
+				json(res, 500, { ok: false, error: err.message });
+			}
+			return;
+		}
+
 		// ---- 文件（视频/图片/故事板）
 		if (route === "/api/file") {
 			const target = resolveSafe(url.searchParams.get("path"));
@@ -858,7 +1120,7 @@ server.on("error", (err) => {
 });
 
 server.listen(PORT, HOST, () => {
-	console.log(`数学视频工作台已启动：http://${HOST}:${PORT}`);
+	console.log(`Animath Studio（幻数工坊）已启动：http://${HOST}:${PORT}`);
 	console.log(`  技能仓库：${SKILL_ROOT}`);
 	console.log(`  项目目录：${PROJECTS_DIR}`);
 	console.log(`  Pi 可执行：${PI_BIN}`);
